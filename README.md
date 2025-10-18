@@ -2,6 +2,10 @@
 Orchestrator using fabric/ fabtask
 
 
+
+## Project Structure
+
+```
 infra-orchestrator/
 ├── fabfile.py
 ├── utils/
@@ -25,3 +29,5 @@ infra-orchestrator/
 │   └── ...
 ├── pyproject.toml
 └── README.md
+```
+
