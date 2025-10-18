@@ -4,15 +4,17 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.s3_sync import upload_to_s3_if_changed
 
-# ------------------------
-# GLOBAL CONFIG
-# ------------------------
-S3_DEPLOY_BUCKET = "my-deployment-artifacts"
-S3_TFVARS_BUCKET = "s3://my-tfvars-bucket/env-tfvars"
+# Configurable paths
+STACKS_PATH = os.getenv("FAB_STACKS_PATH", "/opt/iac/stacks")
+BACKEND_PATH = os.path.join(STACKS_PATH, "../backend-config")
 LOCAL_TFVARS_PATH = "/opt/agent/agent-dev"
 DEPLOY_FILES_PATH = "/opt/agent/agent-dev/deployments"
-TF_BIN = "terraform"
 
+# AWS S3 Buckets
+S3_TFVARS_BUCKET = "s3://my-tfvars-bucket/env-tfvars"
+S3_DEPLOY_BUCKET = "my-deployment-artifacts"
+
+# Terraform stacks (example list)
 STACKS = [
     "vpc", "eks", "rds", "monitoring", "app", "bastion",
     "network", "iam", "s3", "cloudfront", "dynamodb",
@@ -21,15 +23,15 @@ STACKS = [
     "vpn", "ad", "cloudtrail", "glue", "athena", "redshift", "config"
 ]
 
-# ------------------------
-# HELPERS
-# ------------------------
+
 def run_cmd(cmd):
     print(f"\n→ {cmd}")
     subprocess.run(cmd, shell=True, check=True)
 
+
 def get_tfvars_path(env):
     return f"{LOCAL_TFVARS_PATH}/{env}_v2.tfvars"
+
 
 def ensure_tfvars(env):
     path = get_tfvars_path(env)
@@ -37,12 +39,19 @@ def ensure_tfvars(env):
         raise FileNotFoundError(f"tfvars not found: {path}. Run `fab sync_tfvars:{env}` first.")
     return path
 
-# ------------------------
-# FABRIC TASKS
-# ------------------------
+
+@task
+def sync_tfvars(c, env):
+    """Sync tfvars from S3 to agent path"""
+    s3_path = f"{S3_TFVARS_BUCKET}/{env}_v2.tfvars"
+    local_path = get_tfvars_path(env)
+    run_cmd(f"aws s3 cp {s3_path} {local_path}")
+    print(f"✅ Synced tfvars: {s3_path} → {local_path}")
+
+
 @task
 def upload_artifacts(c, env):
-    """Upload ZIP artifacts to S3 if changed."""
+    """Upload deployment zips to S3 (only if changed)"""
     uploads = []
     for file_name in os.listdir(DEPLOY_FILES_PATH):
         if file_name.endswith(".zip"):
@@ -57,30 +66,23 @@ def upload_artifacts(c, env):
         status = "uploaded" if uploaded else "skipped"
         print(f" - {name}: {status}")
 
-@task
-def sync_tfvars(c, env):
-    """Sync tfvars from S3 to agent."""
-    s3_path = f"{S3_TFVARS_BUCKET}/{env}_v2.tfvars"
-    local_path = get_tfvars_path(env)
-    run_cmd(f"aws s3 cp {s3_path} {local_path}")
-    print(f"✅ Synced tfvars: {s3_path} → {local_path}")
 
 @task
 def plan_all(c, env, parallel=False):
-    """Run Terraform plan for all stacks."""
+    """Run terraform plan for all stacks"""
     tfvars_file = ensure_tfvars(env)
 
     def plan_stack(stack):
         print(f"\n===== Planning {stack} ({env}) =====")
-        path = f"./stacks/{stack}"
-        backend_cfg = f"../../backend-config/{env}.config"
-        tfplan_out = f"../../plans/{stack}-{env}.tfplan"
+        path = f"{STACKS_PATH}/{stack}"
+        backend_cfg = f"{BACKEND_PATH}/{env}.config"
+        tfplan_out = f"{path}/plan-{env}.tfplan"
 
         run_cmd(f"cd {path} && rm -rf .terraform")
-        run_cmd(f"cd {path} && {TF_BIN} init -input=false -reconfigure -backend-config={backend_cfg}")
-        run_cmd(f"cd {path} && {TF_BIN} fmt -recursive")
-        run_cmd(f"cd {path} && {TF_BIN} validate")
-        run_cmd(f"cd {path} && {TF_BIN} plan -input=false -var-file={tfvars_file} -out={tfplan_out}")
+        run_cmd(f"cd {path} && terraform init -input=false -reconfigure -backend-config={backend_cfg}")
+        run_cmd(f"cd {path} && terraform fmt -recursive")
+        run_cmd(f"cd {path} && terraform validate")
+        run_cmd(f"cd {path} && terraform plan -input=false -var-file={tfvars_file} -out={tfplan_out}")
         return f"{stack} planned"
 
     if parallel:
@@ -92,22 +94,24 @@ def plan_all(c, env, parallel=False):
         for s in STACKS:
             plan_stack(s)
 
+
 @task
 def apply_all(c, env):
-    """Apply all Terraform stacks."""
+    """Apply terraform plans for all stacks sequentially"""
     for stack in STACKS:
         print(f"\n===== Applying {stack} ({env}) =====")
-        path = f"./stacks/{stack}"
-        tfplan_out = f"../../plans/{stack}-{env}.tfplan"
-        run_cmd(f"cd {path} && {TF_BIN} apply -auto-approve {tfplan_out}")
+        path = f"{STACKS_PATH}/{stack}"
+        tfplan_out = f"{path}/plan-{env}.tfplan"
+        run_cmd(f"cd {path} && terraform apply -auto-approve {tfplan_out}")
+
 
 @task
 def destroy_all(c, env):
-    """Destroy all stacks (use with care)."""
+    """Destroy all stacks in reverse order"""
     tfvars_file = ensure_tfvars(env)
     for stack in reversed(STACKS):
         print(f"\n⚠️ Destroying {stack} ({env})")
-        path = f"./stacks/{stack}"
-        backend_cfg = f"../../backend-config/{env}.config"
-        run_cmd(f"cd {path} && {TF_BIN} init -input=false -reconfigure -backend-config={backend_cfg}")
-        run_cmd(f"cd {path} && {TF_BIN} destroy -auto-approve -var-file={tfvars_file}")
+        path = f"{STACKS_PATH}/{stack}"
+        backend_cfg = f"{BACKEND_PATH}/{env}.config"
+        run_cmd(f"cd {path} && terraform init -input=false -reconfigure -backend-config={backend_cfg}")
+        run_cmd(f"cd {path} && terraform destroy -auto-approve -var-file={tfvars_file}")
