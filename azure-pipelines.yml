@@ -1,1 +1,31 @@
-#
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  ENV: dev1
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+
+  - script: |
+      pip install poetry
+      poetry install
+    displayName: "Install dependencies"
+
+  - task: AWSCLI@1
+    displayName: "Deploy Terraform (Plan)"
+    inputs:
+      awsCredentials: "aws-service-connection-nonprod"
+      regionName: "ap-southeast-1"
+      command: "custom"
+      customCommand: |
+        poetry run fab upload_artifacts:$(ENV)
+        poetry run fab sync_tfvars:$(ENV)
+        poetry run fab plan_all:$(ENV) parallel=True
