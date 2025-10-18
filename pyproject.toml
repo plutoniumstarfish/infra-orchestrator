@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "infra-orchestrator"
-version = "1.0.0"
-description = "Fabric-based orchestration for Terraform & S3 deployments"
+version = "2.0.0"
+description = "Fabric-based orchestration for Terraform in Azure Pipelines"
 authors = ["Your Name <your@email.com>"]
 readme = "README.md"
 
