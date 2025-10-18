@@ -1,31 +1,41 @@
 trigger:
-  branches:
-    include:
-      - main
+- none
+
+resources:
+  repositories:
+    - repository: iac
+      type: git
+      name: yourproject/iac-terraform
+      ref: main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: ubuntu-latest
 
 variables:
   ENV: dev1
+  FAB_STACKS_PATH: $(Pipeline.Workspace)/iac/stacks
 
 steps:
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: '3.11'
+- checkout: self
+  displayName: "Checkout Orchestrator Repo"
 
-  - script: |
-      pip install poetry
-      poetry install
-    displayName: "Install dependencies"
+- checkout: iac
+  displayName: "Checkout IaC (Terraform) Repo"
 
-  - task: AWSCLI@1
-    displayName: "Deploy Terraform (Plan)"
-    inputs:
-      awsCredentials: "aws-service-connection-nonprod"
-      regionName: "ap-southeast-1"
-      command: "custom"
-      customCommand: |
-        poetry run fab upload_artifacts:$(ENV)
-        poetry run fab sync_tfvars:$(ENV)
-        poetry run fab plan_all:$(ENV) parallel=True
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.10'
+
+- script: |
+    pip install poetry
+    poetry install
+  displayName: "Install Fabric dependencies"
+
+- script: |
+    poetry run fab sync_tfvars:$(ENV)
+    poetry run fab upload_artifacts:$(ENV)
+    poetry run fab plan_all:$(ENV)
+    poetry run fab apply_all:$(ENV)
+  displayName: "Run Fabric Terraform orchestration"
+  env:
+    FAB_STACKS_PATH: $(FAB_STACKS_PATH)
