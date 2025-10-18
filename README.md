@@ -31,8 +31,10 @@ infra-orchestrator/
 └── README.md
 ```
 
-
+```
 poetry install
+```
+
 
 
 
