@@ -1,5 +1,5 @@
 trigger:
-- none
+- none  # Manual or scheduled runs only
 
 resources:
   repositories:
@@ -13,11 +13,12 @@ pool:
 
 variables:
   ENV: dev1
+  STACK: vpc  # 👈 Change this to your stack name
   FAB_STACKS_PATH: $(Pipeline.Workspace)/iac/stacks
 
 steps:
 - checkout: self
-  displayName: "Checkout Orchestrator Repo"
+  displayName: "Checkout Infra Orchestrator Repo"
 
 - checkout: iac
   displayName: "Checkout IaC (Terraform) Repo"
@@ -34,8 +35,8 @@ steps:
 - script: |
     poetry run fab sync_tfvars:$(ENV)
     poetry run fab upload_artifacts:$(ENV)
-    poetry run fab plan_all:$(ENV)
-    poetry run fab apply_all:$(ENV)
-  displayName: "Run Fabric Terraform orchestration"
+    poetry run fab plan_stack:$(ENV),$(STACK)
+    poetry run fab apply_stack:$(ENV),$(STACK)
+  displayName: "Run Terraform stack orchestration"
   env:
     FAB_STACKS_PATH: $(FAB_STACKS_PATH)
